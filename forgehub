@@ -1,0 +1,318 @@
+#!/usr/bin/env ruby
+#
+#  Copyright (c) 2013, Simon Howard
+#
+#  Permission to use, copy, modify, and/or distribute this software for any
+#  purpose with or without fee is hereby granted, provided that the above
+#  copyright notice and this permission notice appear in all copies.
+#
+#  THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+#  WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+#  MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY
+#  SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+#  WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+#  ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR
+#  IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+#
+#
+# Upload bugs from Sourceforge project dump into Github issue tracker.
+# This script processes a JSON-format dumped file from Sourceforge and
+# automatically makes the API calls to create issues and attach comments.
+# The comments and bug reports appear to come from the invoking user,
+# but a header note is attached saying who made the original comment and
+# linking to the original Sourceforge thread.
+#
+# Edit config.rb to configure appropriately and then invoke with:
+#
+#   forgehub bugs.json
+#
+
+require 'rubygems'
+gem 'octokit', '~> 2.0'
+require 'json'
+require 'octokit'
+
+require 'config.rb'
+
+ISSUES_PER_PAGE = 100
+
+DESCRIPTION_TEMPLATE =
+"> The following bug was " +
+"[originally reported](https://sourceforge.net/p/<project>/bugs/<id>/) " +
+"on Sourceforge " +
+"by [<author>](https://sourceforge.net/u/<author>/profile/), <time>:\n\n"
+
+COMMENT_TEMPLATE =
+"> [Comment](https://sourceforge.net/p/<project>/bugs/<id>/#<comment>) " +
+"by [<author>](https://sourceforge.net/u/<author>/profile/), <time>:\n\n"
+
+# Given a string containing text that matches the given template,
+# parse back into a hash.
+def read_from_template(template, text)
+	groups = []
+	pattern = Regexp.escape(template).gsub(/\<(\w+)\>/) do
+		groups.push($1)
+		"(.*?)"
+	end
+
+	regexp = Regexp.new(pattern)
+	match = regexp.match(text)
+	if not match
+		raise "String didn't match template"
+	end
+
+	values = {}
+	groups.each_with_index do |group, index|
+		values[:"#{group}"] = match[index + 1]
+	end
+	values
+end
+
+# Given a template and some arguments, generate a string.
+def gen_from_template(template, args)
+	template.gsub(/\<(\w+)\>/) do
+		args[:"#{$1}"]
+	end
+end
+
+class Comment
+	attr_reader :gh_props, :sf_props
+
+	def initialize(gh_props)
+		@gh_props = gh_props
+		@sf_props = read_from_template(COMMENT_TEMPLATE,
+		                               gh_props['body'])
+	end
+
+	def sf_id
+		gh_props['comment']
+	end
+end
+
+class Issue
+	attr_reader :gh_props, :sf_props
+
+	def initialize(gh_props)
+		@gh_props = gh_props
+		@sf_props = read_from_template(DESCRIPTION_TEMPLATE,
+		                               gh_props['body'])
+		@comments = nil
+	end
+
+	# ID of issue on Github.
+	def gh_id
+		@gh_props['number']
+	end
+
+	# ID of ticket on Sourceforge.
+	def sf_id
+		@sf_props[:id]
+	end
+
+	def comments
+		if @comments == nil
+			reply = Octokit.issue_comments(GITHUB_REPO, gh_id)
+			@comments = reply.map do |comment_data|
+				Comment.new(comment_data)
+			end
+		end
+
+		@comments
+	end
+
+	# Get text to add when files are attached to a bug.
+	def attachment_text(attachments)
+		return "" if attachments.length == 0
+
+		text = "> Files were attached:\n"
+		for attachment in attachments
+			url = attachment['url']
+			length = attachment['bytes']
+			filename = url.sub(/.*\//, '')
+			text += "* [#{filename}](#{url}) (#{length} bytes)\n"
+		end
+		text
+	end
+
+	# Add comment based on Sourceforge properties.
+	def add_comment(sf_comment)
+		header = gen_from_template(
+			COMMENT_TEMPLATE,
+			:project => SOURCEFORGE_PROJECT,
+			:id => sf_id,
+			:comment => sf_comment['slug'],
+			:author => sf_comment['author'],
+			:time => sf_comment['timestamp']
+		)
+		comment = header + sf_comment['text'] \
+		        + attachment_text(sf_comment['attachments'])
+
+		puts "=" * 80
+		puts "New comment on #{sf_id}:"
+		puts comment
+		puts
+
+		Octokit.add_comment(GITHUB_REPO, gh_id, comment)
+
+		# Pause after adding each comment. It seems that Github's
+		# database is not consistent, and if we add them too fast
+		# they can end up appearing in the wrong order.
+		sleep(1)
+	end
+
+	def update_comments(sf_comments)
+		# If the number of comments matches the number already
+		# in the Github issue, we can assume it's probably all
+		# correct already.
+		return if sf_comments.length == @gh_props['comments']
+
+		# Build up map of the existing comments.
+		comments_by_id = {}
+		for comment in comments
+			comments_by_id[comment.sf_id] = comment
+		end
+
+		# Check each comment has been posted, and post them
+		# if they haven't.
+		for sf_comment in sf_comments
+			if not comments_by_id.has_key? sf_comment['slug']
+				add_comment(sf_comment)
+			end
+		end
+	end
+
+	def update_state(open)
+		if open == (@gh_props['state'] == 'open')
+			return
+		end
+
+		if open
+			puts "*** #{sf_id}: Bug reopened"
+			Octokit.reopen_issue(GITHUB_REPO, gh_id)
+		else
+			puts "*** #{sf_id}: Bug was closed"
+			Octokit.close_issue(GITHUB_REPO, gh_id)
+		end
+		sleep(1)
+	end
+
+	# Update ticket with Sourceforge ticket data.
+	def update(sf_ticket)
+		update_comments(sf_ticket['discussion_thread']['posts'])
+		update_state(sf_ticket['status'].start_with?('open'))
+	end
+
+	# Get all issues in the specified state.
+	def Issue.get_in_state(state)
+		issues = []
+		page_num = 0
+
+		print "Reading #{state} issues from #{GITHUB_REPO}... "
+		$stdout.flush
+		loop do
+			new_issues = Octokit.issues(
+				GITHUB_REPO,
+				:state => state,
+				:page => page_num,
+				:per_page => ISSUES_PER_PAGE
+			)
+			issues += new_issues
+			print "#{issues.length}, "
+			$stdout.flush
+
+			if new_issues.length < ISSUES_PER_PAGE
+				break
+			end
+
+			page_num += 1
+		end
+		puts
+
+		result = []
+		for gh_props in issues
+			begin
+				result.push(Issue.new(gh_props))
+			rescue
+				# Issue not created by this script.
+			end
+		end
+		result
+	end
+
+	# Get all issues, open or closed.
+	def Issue.get_all
+		Issue.get_in_state('open') + Issue.get_in_state('closed')
+	end
+
+	# Get all issues as a hash indexed by id
+	def Issue.get_all_by_id
+		result = {}
+		for issue in Issue.get_all
+			result[Integer(issue.sf_props[:id])] = issue
+		end
+		result
+	end
+end
+
+# Read Sourceforge dump file and get the list of tickets. Sort tickets
+# by ID so the GitHub issues should be created in the same order as the
+# original tickets.
+def tickets_from_dump(filename)
+	File.open(filename) do |f|
+		data = JSON.parse(f.read)
+		tickets = data['tickets']
+		return tickets.sort do |x, y|
+			x['ticket_num'] <=> y['ticket_num']
+		end
+	end
+end
+
+if $ARGV.length < 1
+	puts "Usage: $0 <dump filename>"
+	exit(1)
+end
+
+# Read tickets from Sourceforge dump file.
+sf_tickets = tickets_from_dump($ARGV[0])
+
+# Get issues currently on GitHub.
+github_issues = Issue.get_all_by_id
+
+# Create all tickets that are not already there.
+for ticket in sf_tickets
+	ticket_num = ticket['ticket_num']
+	if not github_issues.has_key? ticket_num
+		header = gen_from_template(
+			DESCRIPTION_TEMPLATE,
+			:author => ticket['reported_by'],
+			:time => ticket['created_date'],
+			:project => SOURCEFORGE_PROJECT,
+			:id => ticket_num
+		)
+		description = header + ticket['description']
+
+		puts "=" * 80
+		puts "New issue:"
+		puts description
+		puts
+
+		issue_data = Octokit.create_issue(
+			GITHUB_REPO,
+			ticket['summary'],
+			description
+		)
+		github_issues[ticket_num] = Issue.new(issue_data)
+		sleep(1)
+	end
+end
+
+# At this point there is now an entry in github_issues for each ticket.
+# Check all tickets are up to date.
+for ticket in sf_tickets
+	ticket_num = ticket['ticket_num']
+	issue = github_issues[ticket_num]
+	issue.update(ticket)
+end
+
+puts "Now up-to-date."
+
