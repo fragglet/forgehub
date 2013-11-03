@@ -16,4 +16,12 @@ GITHUB_REPO = ''
 
 SOURCEFORGE_PROJECT = ''
 
+# Mapping of Sourceforge ticket state to Github issue label:
+
+STATE_LABEL_MAPPING = {
+  "closed-duplicate" => "duplicate",
+  "closed-invalid" => "invalid",
+  "closed-rejected" => "invalid",
+  "closed-wont-fix" => "wontfix",
+}
 

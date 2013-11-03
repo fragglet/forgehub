@@ -196,10 +196,30 @@ class Issue
 		sleep(1)
 	end
 
+	def update_labels(sf_state)
+		if STATE_LABEL_MAPPING.has_key? sf_state
+			expect_labels = [STATE_LABEL_MAPPING[sf_state]]
+		else
+			expect_labels  = []
+		end
+
+		# Check current labels on this issue.
+
+		labels = @gh_props['labels'].map { |label| label['name'] }
+
+		if expect_labels.sort != labels.sort
+			puts "*** #{sf_id}: Set labels: " +
+			     expect_labels.join(', ')
+			Octokit.replace_all_labels(GITHUB_REPO, gh_id,
+			                           expect_labels)
+		end
+	end
+
 	# Update ticket with Sourceforge ticket data.
 	def update(sf_ticket)
 		update_comments(sf_ticket['discussion_thread']['posts'])
 		update_state(sf_ticket['status'].start_with?('open'))
+		update_labels(sf_ticket['status'])
 	end
 
 	# Get all issues in the specified state.
