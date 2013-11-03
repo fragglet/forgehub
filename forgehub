@@ -85,7 +85,7 @@ class Comment
 	end
 
 	def sf_id
-		gh_props['comment']
+		@sf_props[:comment]
 	end
 end
 
