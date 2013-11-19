@@ -32,7 +32,7 @@ gem 'octokit', '~> 2.0'
 require 'json'
 require 'octokit'
 
-require 'config.rb'
+require './config.rb'
 
 ISSUES_PER_PAGE = 100
 
@@ -72,6 +72,25 @@ end
 def gen_from_template(template, args)
 	template.gsub(/\<(\w+)\>/) do
 		args[:"#{$1}"]
+	end
+end
+
+# Filter function applied to comments before they are posted.
+def convert_comment_text(text)
+
+	# Pick out text that looks like references to SVN commits, and
+	# map them to Git commits appropriately.
+	text.gsub(/\b(r|revision\s+|commit\s+)(\d+)\b/i) do
+		rnum = Integer($2)
+		linktext = $1 + $2
+
+		git_commit = SVN_COMMITS[rnum]
+		if git_commit != nil
+			url = "//github.com/#{GITHUB_REPO}/commit/#{git_commit}"
+			"[#{linktext}](#{url})"
+		else
+			linktext
+		end
 	end
 end
 
@@ -144,7 +163,8 @@ class Issue
 			:author => sf_comment['author'],
 			:time => sf_comment['timestamp']
 		)
-		comment = header + sf_comment['text'] \
+		comment = header \
+		        + convert_comment_text(sf_comment['text']) \
 		        + attachment_text(sf_comment['attachments'])
 
 		puts "=" * 80
@@ -287,13 +307,13 @@ def tickets_from_dump(filename)
 	end
 end
 
-if $ARGV.length < 1
+if ARGV.length < 1
 	puts "Usage: $0 <dump filename>"
 	exit(1)
 end
 
 # Read tickets from Sourceforge dump file.
-sf_tickets = tickets_from_dump($ARGV[0])
+sf_tickets = tickets_from_dump(ARGV[0])
 
 # Get issues currently on GitHub.
 github_issues = Issue.get_all_by_id
@@ -309,7 +329,8 @@ for ticket in sf_tickets
 			:project => SOURCEFORGE_PROJECT,
 			:id => ticket_num
 		)
-		description = header + ticket['description']
+		description = header \
+		            + convert_comment_text(ticket['description'])
 
 		puts "=" * 80
 		puts "New issue:"
