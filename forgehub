@@ -100,7 +100,7 @@ class Comment
 	def initialize(gh_props)
 		@gh_props = gh_props
 		@sf_props = read_from_template(COMMENT_TEMPLATE,
-		                               gh_props['body'])
+					       gh_props['body'])
 	end
 
 	def sf_id
@@ -114,7 +114,7 @@ class Issue
 	def initialize(gh_props)
 		@gh_props = gh_props
 		@sf_props = read_from_template(DESCRIPTION_TEMPLATE,
-		                               gh_props['body'])
+					       gh_props['body'])
 		@comments = nil
 	end
 
@@ -164,8 +164,8 @@ class Issue
 			:time => sf_comment['timestamp']
 		)
 		comment = header \
-		        + convert_comment_text(sf_comment['text']) \
-		        + attachment_text(sf_comment['attachments'])
+			+ convert_comment_text(sf_comment['text']) \
+			+ attachment_text(sf_comment['attachments'])
 
 		puts "=" * 80
 		puts "New comment on #{sf_id}:"
@@ -231,7 +231,26 @@ class Issue
 			puts "*** #{sf_id}: Set labels: " +
 			     expect_labels.join(', ')
 			Octokit.replace_all_labels(GITHUB_REPO, gh_id,
-			                           expect_labels)
+						   expect_labels)
+		end
+	end
+
+	def update_milestone(sf_milestone)
+		if MILESTONE_MAPPING.has_key? sf_milestone
+			expect_milestone = MILESTONE_MAPPING[sf_milestone]
+		else
+			return
+		end
+
+		# Check current milestone on this issue.
+		milestone = @gh_props['milestone']
+
+		if milestone.nil? or expect_milestone != milestone['title']
+			puts "*** #{sf_id}: Set milestone: " + expect_milestone
+			Octokit.update_issue(GITHUB_REPO, gh_id,
+					     @gh_props['title'],
+					     @gh_props['body'],
+					     :milestone => GITHUB_MILESTONES[expect_milestone])
 		end
 	end
 
@@ -240,6 +259,7 @@ class Issue
 		update_comments(sf_ticket['discussion_thread']['posts'])
 		update_state(sf_ticket['status'].start_with?('open'))
 		update_labels(sf_ticket['status'])
+		update_milestone(sf_ticket['custom_fields']['_milestone'])
 	end
 
 	# Get all issues in the specified state.
@@ -307,6 +327,19 @@ def tickets_from_dump(filename)
 	end
 end
 
+# Read all of the existing milestones on GitHub to return a mapping of
+# the string name to milestone number.	Assumes milestone names are
+# unique.
+def milestones_from_github()
+	milestones = {}
+	gh_milestones = Octokit.milestones(GITHUB_REPO, :state => "open") +
+			Octokit.milestones(GITHUB_REPO, :state => "closed")
+	gh_milestones.each do |milestone|
+		milestones[milestone['title']] = milestone['number']
+	end
+	return milestones
+end
+
 if ARGV.length < 1
 	puts "Usage: $0 <dump filename>"
 	exit(1)
@@ -314,6 +347,20 @@ end
 
 # Read tickets from Sourceforge dump file.
 sf_tickets = tickets_from_dump(ARGV[0])
+
+# Create the mapping from GitHub milestone string to milestone number.
+GITHUB_MILESTONES = milestones_from_github()
+
+# Run through the user-configured mapping of SourceForge milestones to
+# GitHub milestones and ensure that the GitHub targets all exists;
+# update the GitHub string->number mapping for any new milestones
+# created.
+MILESTONE_MAPPING.each do |sfkey,ghkey|
+	if not GITHUB_MILESTONES.has_key? ghkey
+		new_milestone = Octokit.create_milestone(GITHUB_REPO, ghkey)
+		GITHUB_MILESTONES[ghkey] = new_milestone['number']
+	end
+end
 
 # Get issues currently on GitHub.
 github_issues = Issue.get_all_by_id
@@ -330,7 +377,7 @@ for ticket in sf_tickets
 			:id => ticket_num
 		)
 		description = header \
-		            + convert_comment_text(ticket['description'])
+			    + convert_comment_text(ticket['description'])
 
 		puts "=" * 80
 		puts "New issue:"
