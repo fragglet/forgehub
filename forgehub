@@ -100,7 +100,7 @@ class Comment
 	def initialize(gh_props)
 		@gh_props = gh_props
 		@sf_props = read_from_template(COMMENT_TEMPLATE,
-		                               gh_props['body'])
+					       gh_props['body'])
 	end
 
 	def sf_id
@@ -114,7 +114,7 @@ class Issue
 	def initialize(gh_props)
 		@gh_props = gh_props
 		@sf_props = read_from_template(DESCRIPTION_TEMPLATE,
-		                               gh_props['body'])
+					       gh_props['body'])
 		@comments = nil
 	end
 
@@ -164,8 +164,8 @@ class Issue
 			:time => sf_comment['timestamp']
 		)
 		comment = header \
-		        + convert_comment_text(sf_comment['text']) \
-		        + attachment_text(sf_comment['attachments'])
+			+ convert_comment_text(sf_comment['text']) \
+			+ attachment_text(sf_comment['attachments'])
 
 		puts "=" * 80
 		puts "New comment on #{sf_id}:"
@@ -231,7 +231,7 @@ class Issue
 			puts "*** #{sf_id}: Set labels: " +
 			     expect_labels.join(', ')
 			Octokit.replace_all_labels(GITHUB_REPO, gh_id,
-			                           expect_labels)
+						   expect_labels)
 		end
 	end
 
@@ -247,7 +247,10 @@ class Issue
 
 		if milestone.nil? or expect_milestone != milestone['title']
 			puts "*** #{sf_id}: Set milestone: " + expect_milestone
-			Octokit.update_issue(GITHUB_REPO, gh_id, @gh_props['title'], @gh_props['body'], :milestone => GITHUB_MILESTONES[expect_milestone])
+			Octokit.update_issue(GITHUB_REPO, gh_id,
+					     @gh_props['title'],
+					     @gh_props['body'],
+					     :milestone => GITHUB_MILESTONES[expect_milestone])
 		end
 	end
 
@@ -325,11 +328,12 @@ def tickets_from_dump(filename)
 end
 
 # Read all of the existing milestones on GitHub to return a mapping of
-# the string name to milestone number.  Assumes milestone names are
+# the string name to milestone number.	Assumes milestone names are
 # unique.
 def milestones_from_github()
 	milestones = {}
-	gh_milestones = Octokit.milestones(GITHUB_REPO, :state => "open") + Octokit.milestones(GITHUB_REPO, :state => "closed")
+	gh_milestones = Octokit.milestones(GITHUB_REPO, :state => "open") +
+			Octokit.milestones(GITHUB_REPO, :state => "closed")
 	gh_milestones.each do |milestone|
 		milestones[milestone['title']] = milestone['number']
 	end
@@ -373,7 +377,7 @@ for ticket in sf_tickets
 			:id => ticket_num
 		)
 		description = header \
-		            + convert_comment_text(ticket['description'])
+			    + convert_comment_text(ticket['description'])
 
 		puts "=" * 80
 		puts "New issue:"
