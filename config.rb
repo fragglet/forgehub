@@ -31,6 +31,12 @@ STATE_LABEL_MAPPING = {
 MILESTONE_MAPPING = {
 }
 
+# Mapping of SourceForge usernames to GitHub usernames.  Used to set
+# the assignee of a ticket.
+
+USER_MAPPING = {
+}
+
 # Mapping of SVN commit numbers to Git commit IDs. If populated, comments
 # that refer to "commit 1234", "revision 1234" or "r1234" will be linked
 # to the associated Git commit ID.
