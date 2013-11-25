@@ -239,12 +239,16 @@ class Issue
 		if MILESTONE_MAPPING.has_key? sf_milestone
 			expect_milestone = MILESTONE_MAPPING[sf_milestone]
 		else
+			# Do nothing if no mapping was defined for
+			# this SF milestone.
 			return
 		end
 
 		# Check current milestone on this issue.
 		milestone = @gh_props['milestone']
 
+		# Set the milestone if it is missing or is different
+		# than the expected milestone.
 		if milestone.nil? or expect_milestone != milestone['title']
 			puts "*** #{sf_id}: Set milestone: " + expect_milestone
 			Octokit.update_issue(GITHUB_REPO, gh_id,
@@ -358,8 +362,8 @@ end
 # unique.
 def milestones_from_github()
 	milestones = {}
-	gh_milestones = Octokit.milestones(GITHUB_REPO, :state => "open") +
-			Octokit.milestones(GITHUB_REPO, :state => "closed")
+	gh_milestones = Octokit.list_milestones(GITHUB_REPO, :state => "open") +
+			Octokit.list_milestones(GITHUB_REPO, :state => "closed")
 	gh_milestones.each do |milestone|
 		milestones[milestone['title']] = milestone['number']
 	end
