@@ -381,7 +381,7 @@ def milestones_from_github()
 end
 
 if ARGV.length < 1
-	puts "Usage: $0 <dump filename>"
+	puts "Usage: #{$0} dump/bugs.json"
 	exit(1)
 end
 
