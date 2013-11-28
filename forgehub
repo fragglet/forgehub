@@ -80,7 +80,7 @@ def convert_comment_text(text)
 
 	# Pick out text that looks like references to SVN commits, and
 	# map them to Git commits appropriately.
-	text.gsub(/\b(r|revision\s+|commit\s+)(\d+)\b/i) do
+	text = text.gsub(/\b(r|revision\s+|commit\s+)(\d+)\b/i) do
 		rnum = Integer($2)
 		linktext = $1 + $2
 
@@ -91,6 +91,16 @@ def convert_comment_text(text)
 		else
 			linktext
 		end
+	end
+
+	# Github extends Markdown syntax so that issues can be referred to
+	# by eg. #1234 or fragglet/chocolate-doom#1234. We don't want
+	# this, but escaping the '#' character with a backslash doesn't
+	# make it go away. Instead, insert an invisible empty <span>
+	# between the # and the number. Kind of a gross hack but it works
+	# and I can't find a more elegant way to solve this.
+	text.gsub(/\#(\d+)/) do
+		"#<span></span>#{$1}"
 	end
 end
 
