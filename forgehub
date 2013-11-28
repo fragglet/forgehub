@@ -239,12 +239,16 @@ class Issue
 		if MILESTONE_MAPPING.has_key? sf_milestone
 			expect_milestone = MILESTONE_MAPPING[sf_milestone]
 		else
+			# Do nothing if no mapping was defined for
+			# this SF milestone.
 			return
 		end
 
 		# Check current milestone on this issue.
 		milestone = @gh_props['milestone']
 
+		# Set the milestone if it is missing or is different
+		# than the expected milestone.
 		if milestone.nil? or expect_milestone != milestone['title']
 			puts "*** #{sf_id}: Set milestone: " + expect_milestone
 			Octokit.update_issue(GITHUB_REPO, gh_id,
@@ -254,12 +258,38 @@ class Issue
 		end
 	end
 
+	def update_assignee(sf_user)
+		if USER_MAPPING.has_key? sf_user
+			expect_assignee = USER_MAPPING[sf_user]
+		else
+			# Do nothing if there was no equivalent GH
+			# user for this SF user.
+			return
+		end
+
+		# Check current assignee of this issue.
+		assignee = @gh_props['assignee']
+
+		# Assign the mapped sf user if there was either no
+		# assignee or if the assignee is different than who we
+		# expected.
+		if assignee.nil? or expect_assignee != assignee['login']
+			puts "*** #{sf_id}: Set assignee: " + expect_assignee
+			Octokit.update_issue(GITHUB_REPO, gh_id,
+					     @gh_props['title'],
+					     @gh_props['body'],
+					     :assignee => expect_assignee)
+		end
+	end
+
+
 	# Update ticket with Sourceforge ticket data.
 	def update(sf_ticket)
 		update_comments(sf_ticket['discussion_thread']['posts'])
 		update_state(sf_ticket['status'].start_with?('open'))
 		update_labels(sf_ticket['status'])
 		update_milestone(sf_ticket['custom_fields']['_milestone'])
+		update_assignee(sf_ticket['assigned_to'])
 	end
 
 	# Get all issues in the specified state.
@@ -332,8 +362,8 @@ end
 # unique.
 def milestones_from_github()
 	milestones = {}
-	gh_milestones = Octokit.milestones(GITHUB_REPO, :state => "open") +
-			Octokit.milestones(GITHUB_REPO, :state => "closed")
+	gh_milestones = Octokit.list_milestones(GITHUB_REPO, :state => "open") +
+			Octokit.list_milestones(GITHUB_REPO, :state => "closed")
 	gh_milestones.each do |milestone|
 		milestones[milestone['title']] = milestone['number']
 	end
