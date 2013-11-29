@@ -99,8 +99,14 @@ def convert_comment_text(text)
 	# make it go away. Instead, insert an invisible empty <span>
 	# between the # and the number. Kind of a gross hack but it works
 	# and I can't find a more elegant way to solve this.
-	text.gsub(/\#(\d+)/) do
+	text = text.gsub(/\#(\d+)/) do
 		"#<span></span>#{$1}"
+	end
+
+	# We need to do the same thing for @username references to avoid
+	# emailing random Github users.
+	text.gsub(/@(\S+)/) do
+		"@<span></span>#{$1}"
 	end
 end
 
