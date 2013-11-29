@@ -75,6 +75,28 @@ def gen_from_template(template, args)
 	end
 end
 
+# Markdown syntax allows headings to be defined by using a line
+# containing all 'underline' characters (= or -). But the handling
+# of this differs between Sourceforge and Github: Sourceforge only
+# turns "underlined" lines into headings if they're preceded by
+# an empty line, but Github doesn't care about a preceding empty
+# line. So detect cases that would be erroneously turned into
+# headings and 'fix' them by adding a preceding space.
+def fix_underlines(text)
+        result_lines = []
+        prev_line, prev_line2 = "", ""
+
+        text.each_line do |line|
+                if line =~ /^(=+|-+)\s*$/ and prev_line2 !~ /^\s*$/
+                        line = " " + line
+                end
+                prev_line2, prev_line = prev_line, line
+                result_lines.push(line)
+        end
+
+        result_lines.join
+end
+
 # Filter function applied to comments before they are posted.
 def convert_comment_text(text)
 
@@ -105,9 +127,13 @@ def convert_comment_text(text)
 
 	# We need to do the same thing for @username references to avoid
 	# emailing random Github users.
-	text.gsub(/@(\S+)/) do
+	text = text.gsub(/@(\S+)/) do
 		"@<span></span>#{$1}"
 	end
+
+	text = fix_underlines(text)
+
+	text
 end
 
 class Comment
